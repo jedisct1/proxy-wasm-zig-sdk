@@ -15,7 +15,7 @@ pub var current_state: State = .{
 
 pub const State = struct {
     const Self = @This();
-    new_root_context: ?fn (context_id: usize) *contexts.RootContext,
+    new_root_context: ?*const fn (context_id: usize) *contexts.RootContext,
     root_contexts: std.AutoHashMap(u32, *contexts.RootContext),
     stream_contexts: std.AutoHashMap(u32, *contexts.TcpContext),
     http_contexts: std.AutoHashMap(u32, *contexts.HttpContext),
@@ -29,7 +29,7 @@ pub const State = struct {
 
 export fn proxy_on_context_create(context_id: u32, root_context_id: u32) void {
     if (root_context_id == 0) {
-        var context = current_state.new_root_context.?(context_id);
+        const context = current_state.new_root_context.?(context_id);
         current_state.root_contexts.put(context_id, context) catch unreachable;
         return;
     }
@@ -44,7 +44,7 @@ export fn proxy_on_context_create(context_id: u32, root_context_id: u32) void {
 
     // Try to create a http context.
     // If we fail to create, then the state is stale.
-    var http_context = root.newHttpContext(context_id).?;
+    const http_context = root.newHttpContext(context_id).?;
     current_state.http_contexts.put(context_id, http_context) catch unreachable;
 }
 

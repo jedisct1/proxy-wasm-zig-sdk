@@ -11,44 +11,44 @@ pub const RootContext = struct {
     /// Note that only one RootContext is called on this function;
     /// There's Wasm VM: RootContext = 1: N correspondence, and
     /// each RootContext corresponds to each config.configuration, not vm_config.configuration.
-    onVmStartImpl: ?fn (self: *Self, configuration_size: usize) bool = null,
+    onVmStartImpl: ?*const fn (self: *Self, configuration_size: usize) bool = null,
 
     /// onPluginStart is called after onVmStart and for each different plugin configurations.
     /// During this call, hostcalls.getPluginConfiguration is available and can be used to
     /// retrieve the configuration set at config.configuration in envoy.yaml
-    onPluginStartImpl: ?fn (self: *Self, configuration_size: usize) bool = null,
+    onPluginStartImpl: ?*const fn (self: *Self, configuration_size: usize) bool = null,
 
     /// onPluginDone is called right before deinit is called.
     /// Return false to indicate it's in a pending state to do some more work left,
     /// And must call hostcalls.done after the work is done to invoke deinit and other
     /// cleanup in the host implementation.
-    onPluginDoneImpl: ?fn (self: *Self) bool = null,
+    onPluginDoneImpl: ?*const fn (self: *Self) bool = null,
 
     /// onDelete is called when the host is deleting this context.
-    onDeleteImpl: ?fn (self: *Self) void = null,
+    onDeleteImpl: ?*const fn (self: *Self) void = null,
 
     /// newHttpContext is used for creating HttpContext for http filters.
     /// Return null to indicate this RootContext is not for HTTP streams.
     /// Deallocation of contexts created here should only be performed in HttpContext.onDelete.
-    newHttpContextImpl: ?fn (self: *Self, context_id: u32) ?*HttpContext = null,
+    newHttpContextImpl: ?*const fn (self: *Self, context_id: u32) ?*HttpContext = null,
 
     /// newTcpContext is used for creating TcpContext for tcp filters.
     /// Return null to indicate this RootContext is not for TCP streams.
     /// Deallocation of contexts created here should only be performed in TcpContext.onDelete.
-    newTcpContextImpl: ?fn (self: *Self, context_id: u32) ?*TcpContext = null,
+    newTcpContextImpl: ?*const fn (self: *Self, context_id: u32) ?*TcpContext = null,
 
     /// onQueueReady is called when the queue is ready after calling hostcalls.RegisterQueue.
     /// Note that the queue is dequeued by another VM running in another thread, so possibly
     /// the queue is empty during onQueueReady.
-    onQueueReadyImpl: ?fn (self: *Self, quque_id: u32) void = null,
+    onQueueReadyImpl: ?*const fn (self: *Self, quque_id: u32) void = null,
 
     /// onTick is called when the queue is called when SetTickPeriod hostcall
     /// is called by this root context.
-    onTickImpl: ?fn (self: *Self) void = null,
+    onTickImpl: ?*const fn (self: *Self) void = null,
 
     /// onHttpCalloutResponse is called when a dispatched http call by hostcalls.dispatchHttpCall
     /// has received a response.
-    onHttpCalloutResponseImpl: ?fn (self: *Self, callout_id: u32, num_headers: usize, body_size: usize, num_trailers: usize) void = null,
+    onHttpCalloutResponseImpl: ?*const fn (self: *Self, callout_id: u32, num_headers: usize, body_size: usize, num_trailers: usize) void = null,
 
     // The followings are only used by SDK internally. See state.zig.
     pub fn onVmStart(self: *Self, configuration_size: usize) bool {
@@ -117,31 +117,31 @@ pub const TcpContext = struct {
     // Note that these types are optional so we can have the "default" (nop) implementation.
 
     /// onNewConnection is called when the tcp connection is established between Down and Upstreams.
-    onNewConnectionImpl: ?fn (self: *Self) enums.Action = null,
+    onNewConnectionImpl: ?*const fn (self: *Self) enums.Action = null,
 
     /// onDownstreamData is called when the data fram arrives from the downstream connection.
-    onDownstreamDataImpl: ?fn (self: *Self, data_size: usize, end_of_stream: bool) enums.Action = null,
+    onDownstreamDataImpl: ?*const fn (self: *Self, data_size: usize, end_of_stream: bool) enums.Action = null,
 
     /// onDownstreamClose is called when the downstream connection is closed.
-    onDownstreamCloseImpl: ?fn (self: *Self, peer_type: enums.PeerType) void = null,
+    onDownstreamCloseImpl: ?*const fn (self: *Self, peer_type: enums.PeerType) void = null,
 
     /// onUpstreamData is called when the data fram arrives from the upstream connection.
-    onUpstreamDataImpl: ?fn (self: *Self, data_size: usize, end_of_stream: bool) enums.Action = null,
+    onUpstreamDataImpl: ?*const fn (self: *Self, data_size: usize, end_of_stream: bool) enums.Action = null,
 
     /// onUpstreamClose is called when the upstream connection is closed.
-    onUpstreamCloseImpl: ?fn (self: *Self, peer_type: enums.PeerType) void = null,
+    onUpstreamCloseImpl: ?*const fn (self: *Self, peer_type: enums.PeerType) void = null,
 
     /// onUpstreamClose is called before the host calls onDelete.
     /// You can retreive the stream information (such as remote addesses, etc.) during this calls
     /// Can be used for implementing logging feature.
-    onLogImpl: ?fn (self: *Self) void = null,
+    onLogImpl: ?*const fn (self: *Self) void = null,
 
     /// onDelete is called when the host is deleting this context.
-    onDeleteImpl: ?fn (self: *Self) void = null,
+    onDeleteImpl: ?*const fn (self: *Self) void = null,
 
     /// onHttpCalloutResponse is called when a dispatched http call by hostcalls.dispatchHttpCall
     /// has received a response.
-    onHttpCalloutResponseImpl: ?fn (self: *Self, callout_id: u32, num_headers: usize, body_size: usize, num_trailers: usize) void = null,
+    onHttpCalloutResponseImpl: ?*const fn (self: *Self, callout_id: u32, num_headers: usize, body_size: usize, num_trailers: usize) void = null,
 
     // The followings are only used by SDK internally. See state.zig.
     pub fn onDownstreamData(self: *Self, data_size: usize, end_of_stream: bool) enums.Action {
@@ -202,36 +202,36 @@ pub const HttpContext = struct {
     // Note that these types are optional so we can have the "default" (nop) implementation.
 
     /// onHttpRequestHeaders is called when request headers arrives.
-    onHttpRequestHeadersImpl: ?fn (self: *Self, num_headers: usize, end_of_stream: bool) enums.Action = null,
+    onHttpRequestHeadersImpl: ?*const fn (self: *Self, num_headers: usize, end_of_stream: bool) enums.Action = null,
 
     /// onHttpRequestHeaders is called when a request body *frame* arrives.
     /// Note that this is possibly called multiple times until we see end_of_stream = true,
-    onHttpRequestBodyImpl: ?fn (self: *Self, body_size: usize, end_of_stream: bool) enums.Action = null,
+    onHttpRequestBodyImpl: ?*const fn (self: *Self, body_size: usize, end_of_stream: bool) enums.Action = null,
 
     /// onHttpRequestTrailers is called when request trailers arrives.
-    onHttpRequestTrailersImpl: ?fn (self: *Self, num_trailers: usize) enums.Action = null,
+    onHttpRequestTrailersImpl: ?*const fn (self: *Self, num_trailers: usize) enums.Action = null,
 
     /// onHttpResponseHeaders is called when response headers arrives.
-    onHttpResponseHeadersImpl: ?fn (self: *Self, num_headers: usize, end_of_stream: bool) enums.Action = null,
+    onHttpResponseHeadersImpl: ?*const fn (self: *Self, num_headers: usize, end_of_stream: bool) enums.Action = null,
 
     /// onHttpResponseBody is called when a response body *frame* arrives.
     /// Note that this is possibly called multiple times until we see end_of_stream = true,
-    onHttpResponseBodyImpl: ?fn (self: *Self, body_size: usize, end_of_stream: bool) enums.Action = null,
+    onHttpResponseBodyImpl: ?*const fn (self: *Self, body_size: usize, end_of_stream: bool) enums.Action = null,
 
     /// onHttpResponseTrailers is called when response trailers arrives.
-    onHttpResponseTrailersImpl: ?fn (self: *Self, num_trailers: usize) enums.Action = null,
+    onHttpResponseTrailersImpl: ?*const fn (self: *Self, num_trailers: usize) enums.Action = null,
 
     /// onUpstreamClose is called before the host calls onDelete.
     /// You can retreive the HTTP request/response information (such headers, etc.) during this calls
     /// Can be used for implementing logging feature.
-    onLogImpl: ?fn (self: *Self) void = null,
+    onLogImpl: ?*const fn (self: *Self) void = null,
 
     /// onDelete is called when the host is deleting this context.
-    onDeleteImpl: ?fn (self: *Self) void = null,
+    onDeleteImpl: ?*const fn (self: *Self) void = null,
 
     /// onHttpCalloutResponse is called when a dispatched http call by hostcalls.dispatchHttpCall
     /// has received a response.
-    onHttpCalloutResponseImpl: ?fn (self: *Self, callout_id: u32, num_headers: usize, body_size: usize, num_trailers: usize) void = null,
+    onHttpCalloutResponseImpl: ?*const fn (self: *Self, callout_id: u32, num_headers: usize, body_size: usize, num_trailers: usize) void = null,
 
     // The followings are only used by SDK internally. See state.zig.
     pub fn onHttpRequestHeaders(self: *Self, num_headers: usize, end_of_stream: bool) enums.Action {

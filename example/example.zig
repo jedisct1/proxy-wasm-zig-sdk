@@ -262,7 +262,7 @@ const Root = struct {
         // Record a cryptographically secure random value on the gauge.
         var buf: [8]u8 = undefined;
         std.crypto.random.bytes(buf[0..]);
-        hostcalls.recordMetric(self.random_gauge_metric_id.?, std.mem.readIntLittle(u64, buf[0..])) catch unreachable;
+        hostcalls.recordMetric(self.random_gauge_metric_id.?, std.mem.readInt(u64, buf[0..], .little)) catch unreachable;
 
         // Insert the random value to the shared key value store.
         hostcalls.setSharedData(random_shared_data_key, buf[0..], 0) catch unreachable;
@@ -856,7 +856,7 @@ const HttpRandomAuth = struct {
         // Parse it to httpbinUUIDResponseBody struct.
         const httpbinUUIDResponseBody = comptime struct { uuid: []const u8 };
         var stream = std.json.TokenStream.init(raw_body.raw_data);
-        var body = std.json.parse(
+        const body = std.json.parse(
             httpbinUUIDResponseBody,
             &stream,
             .{ .allocator = allocator },

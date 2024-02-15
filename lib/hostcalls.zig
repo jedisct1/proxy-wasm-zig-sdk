@@ -133,19 +133,19 @@ pub fn getHeaderMap(map_type: enums.MapType) !HeaderMap {
     switch (proxy_get_header_map_pairs(map_type, &buf_ptr, &buf_size)) {
         .Ok => {
             var map = std.StringHashMap([]const u8).init(allocator);
-            const num_headers: u32 = std.mem.readIntSliceLittle(u32, buf_ptr[0..4]);
+            const num_headers: u32 = std.mem.readIntSlice(u32, buf_ptr[0..4], .little);
             var count: usize = 0;
             var size_index: usize = 4;
             var data_index: usize = 4 + num_headers * 4 * 2;
             while (count < num_headers) : (count += 1) {
-                const key_size: u32 = std.mem.readIntSliceLittle(u32, buf_ptr[size_index .. 4 + size_index]);
+                const key_size: u32 = std.mem.readIntSlice(u32, buf_ptr[size_index .. 4 + size_index], .little);
                 size_index += 4;
-                var key: []const u8 = buf_ptr[data_index .. data_index + key_size];
+                const key: []const u8 = buf_ptr[data_index .. data_index + key_size];
                 data_index += key_size + 1;
 
-                const value_size: u32 = std.mem.readIntSliceLittle(u32, buf_ptr[size_index .. 4 + size_index]);
+                const value_size: u32 = std.mem.readIntSlice(u32, buf_ptr[size_index .. 4 + size_index], .little);
                 size_index += 4;
-                var value: []const u8 = buf_ptr[data_index .. data_index + value_size];
+                const value: []const u8 = buf_ptr[data_index .. data_index + value_size];
                 data_index += value_size + 1;
                 try map.put(key, value);
             }
@@ -167,14 +167,14 @@ fn serializeHeaders(map: std.StringHashMap([]const u8)) ![]const u8 {
     var buf = try allocator.alloc(u8, size);
 
     // Write the number of headers.
-    std.mem.writeIntSliceLittle(usize, buf[0..4], map.count());
+    std.mem.writeInt(usize, buf[0..4], map.count(), .little);
 
     // Write the lengths of key/values.
     var base: usize = 4;
     iter = map.iterator();
     while (iter.next()) |header| {
-        std.mem.writeIntSliceLittle(usize, buf[base .. base + 4], header.key_ptr.len);
-        std.mem.writeIntSliceLittle(usize, buf[base + 4 .. base + 8], header.value_ptr.len);
+        std.mem.writeInt(usize, buf[base .. base + 4][0..4], header.key_ptr.len, .little);
+        std.mem.writeInt(usize, buf[base + 4 .. base + 8][0..4], header.value_ptr.len, .little);
         base += 8;
     }
 
@@ -182,12 +182,12 @@ fn serializeHeaders(map: std.StringHashMap([]const u8)) ![]const u8 {
     iter = map.iterator();
     while (iter.next()) |header| {
         // Copy key.
-        std.mem.copy(u8, buf[base..], header.key_ptr.*);
+        @memcpy(buf[base..], header.key_ptr.*);
         base += header.key_ptr.len;
         buf[base] = 0;
         base += 1;
         // Copy value.
-        std.mem.copy(u8, buf[base..], header.value_ptr.*);
+        @memcpy(buf[base..], header.value_ptr.*);
         base += header.value_ptr.len;
         buf[base] = 0;
         base += 1;
@@ -311,7 +311,7 @@ pub fn getProperty(path: []const []const u8) !WasmData {
     defer allocator.free(serialized_path);
     var index: usize = 0;
     for (path) |p| {
-        std.mem.copy(u8, serialized_path[index .. index + p.len], p);
+        @memcpy(serialized_path[index .. index + p.len], p);
         index += p.len;
         serialized_path[index] = 0;
         index += 1;
