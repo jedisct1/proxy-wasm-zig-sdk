@@ -133,17 +133,17 @@ pub fn getHeaderMap(map_type: enums.MapType) !HeaderMap {
     switch (proxy_get_header_map_pairs(map_type, &buf_ptr, &buf_size)) {
         .Ok => {
             var map = std.StringHashMap([]const u8).init(allocator);
-            const num_headers: u32 = std.mem.readIntSlice(u32, buf_ptr[0..4], .little);
+            const num_headers: u32 = std.mem.readInt(u32, buf_ptr[0..4], .little);
             var count: usize = 0;
             var size_index: usize = 4;
             var data_index: usize = 4 + num_headers * 4 * 2;
             while (count < num_headers) : (count += 1) {
-                const key_size: u32 = std.mem.readIntSlice(u32, buf_ptr[size_index .. 4 + size_index], .little);
+                const key_size: u32 = std.mem.readInt(u32, buf_ptr[size_index .. 4 + size_index][0..4], .little);
                 size_index += 4;
                 const key: []const u8 = buf_ptr[data_index .. data_index + key_size];
                 data_index += key_size + 1;
 
-                const value_size: u32 = std.mem.readIntSlice(u32, buf_ptr[size_index .. 4 + size_index], .little);
+                const value_size: u32 = std.mem.readInt(u32, buf_ptr[size_index .. 4 + size_index][0..4], .little);
                 size_index += 4;
                 const value: []const u8 = buf_ptr[data_index .. data_index + value_size];
                 data_index += value_size + 1;

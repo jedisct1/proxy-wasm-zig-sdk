@@ -40,6 +40,8 @@ const Root = struct {
 
     // Store the parsed plugin configuration in onPluginStart.
     plugin_configuration: PluginConfiguration,
+    // JSON parser for the plugin configuration.
+    json_parser: ?std.json.Parsed(PluginConfiguration) = null,
 
     // The counter metric ID for storing total data received by tcp filter.
     tcp_total_data_size_counter_metric_id: ?u32 = null,
@@ -105,12 +107,10 @@ const Root = struct {
         defer plugin_config_data.deinit();
 
         // Parse it to ConfigurationData struct.
-        var stream = std.json.TokenStream.init(plugin_config_data.raw_data);
-        self.plugin_configuration = std.json.parse(
-            PluginConfiguration,
-            &stream,
-            .{ .allocator = allocator },
-        ) catch unreachable;
+        var parsed = std.json.parseFromSlice(PluginConfiguration, allocator, plugin_config_data.raw_data, .{}) catch return false;
+        defer parsed.deinit();
+        self.json_parser = parsed;
+        self.plugin_configuration = parsed.value;
 
         // Log the given and parsed configuration.
         const message = std.fmt.allocPrint(
@@ -159,7 +159,10 @@ const Root = struct {
         const self: *Self = @fieldParentPtr(Self, "root_context", root_context);
 
         // Destory the configura allocated during json parsing.
-        std.json.parseFree(PluginConfiguration, self.plugin_configuration, .{ .allocator = allocator });
+        if (self.json_parser) |parser| {
+            parser.deinit();
+            self.json_parser = null;
+        }
         // Destroy myself.
         allocator.destroy(self);
     }
@@ -562,7 +565,7 @@ const HttpHeaderOperation = struct {
             ) catch return enums.Action.Continue;
             defer data.deinit();
             // Read the random value as u64 and format it as string.
-            const value: u64 = std.mem.readIntSliceLittle(u64, data.raw_data);
+            const value: u64 = std.mem.readInt(u64, data.raw_data[0..8], .little);
             var buffer: [20]u8 = undefined;
             _ = std.fmt.bufPrintIntToSlice(buffer[0..], value, 10, .lower, .{});
             // Put it in the header.
@@ -855,13 +858,9 @@ const HttpRandomAuth = struct {
 
         // Parse it to httpbinUUIDResponseBody struct.
         const httpbinUUIDResponseBody = comptime struct { uuid: []const u8 };
-        var stream = std.json.TokenStream.init(raw_body.raw_data);
-        const body = std.json.parse(
-            httpbinUUIDResponseBody,
-            &stream,
-            .{ .allocator = allocator },
-        ) catch unreachable;
-        defer std.json.parseFree(httpbinUUIDResponseBody, body, .{ .allocator = allocator });
+        var parsed = std.json.parseFromSlice(httpbinUUIDResponseBody, allocator, raw_body.raw_data, .{}) catch unreachable;
+        defer parsed.deinit();
+        const body = parsed.value;
 
         // Log the received response from httpbin.
         const message = std.fmt.allocPrint(
