@@ -88,17 +88,17 @@ extern "env" fn proxy_get_buffer_bytes(
     buffer_type: enums.BufferType,
     start: usize,
     max_size: usize,
-    return_buffer_ptr: *[*]const u8,
+    return_buffer_ptr: *?[*]const u8,
     return_buffer_size: *usize,
 ) enums.Status;
 
 /// getBufferBytes returns a WasmData holding the bytes allocated by host for the given buffer_type.
 pub fn getBufferBytes(buffer_type: enums.BufferType, start: usize, max_size: usize) hostcallErrors!WasmData {
-    var buf_ptr: [*]const u8 = undefined;
+    var buf_ptr: ?[*]const u8 = null;
     var buf_len: usize = undefined;
     switch (proxy_get_buffer_bytes(buffer_type, start, max_size, &buf_ptr, &buf_len)) {
         .Ok => {
-            return if (buf_ptr == undefined) hostcallErrors.NotFound else WasmData{ .raw_data = buf_ptr[0..buf_len] };
+            return .{ .raw_data = (buf_ptr orelse return error.NotFound)[0..buf_len] };
         },
         .NotFound => return hostcallErrors.NotFound,
         else => unreachable,
@@ -182,12 +182,12 @@ fn serializeHeaders(map: std.StringHashMap([]const u8)) ![]const u8 {
     iter = map.iterator();
     while (iter.next()) |header| {
         // Copy key.
-        @memcpy(buf[base..], header.key_ptr.*);
+        @memcpy(buf[base..][0..header.key_ptr.len], header.key_ptr.*);
         base += header.key_ptr.len;
         buf[base] = 0;
         base += 1;
         // Copy value.
-        @memcpy(buf[base..], header.value_ptr.*);
+        @memcpy(buf[base..][0..header.value_ptr.len], header.value_ptr.*);
         base += header.value_ptr.len;
         buf[base] = 0;
         base += 1;
@@ -489,7 +489,7 @@ pub fn sendLocalResponse(
     body: ?[]const u8,
     headers: ?std.StringHashMap([]const u8),
 ) !void {
-    var headers_buf: ?[]const u8 = undefined;
+    var headers_buf: ?[]const u8 = null;
     if (headers) |h| {
         headers_buf = try serializeHeaders(h);
     }
@@ -537,7 +537,7 @@ pub fn dispatchHttpCall(
     trailers: ?std.StringHashMap([]const u8),
     timeout_milliseconds: u32,
 ) !u32 {
-    var headers_buf: ?[]const u8 = undefined;
+    var headers_buf: ?[]const u8 = null;
     if (headers) |h| {
         headers_buf = try serializeHeaders(h);
     }
@@ -547,7 +547,7 @@ pub fn dispatchHttpCall(
         }
     }
 
-    var trailers_buf: ?[]const u8 = undefined;
+    var trailers_buf: ?[]const u8 = null;
     if (trailers) |h| {
         trailers_buf = try serializeHeaders(h);
     }

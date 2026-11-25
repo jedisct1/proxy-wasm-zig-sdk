@@ -1,53 +1,52 @@
 const std = @import("std");
 const allocator = std.heap.page_allocator;
 const debug = std.debug;
+const io = std.testing.io;
 const assert = debug.assert;
 
 test "Run End-to-End test with Envoy proxy" {
     try requireWasmBinary();
-    var envoy = try requireRunAndWaitEnvoyStarted();
-    defer _ = envoy.kill() catch unreachable;
-    errdefer printFileReader(envoy.stderr.?.reader()) catch unreachable;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const stderr = try tmp.dir.createFile(io, "envoy.log", .{});
+    defer stderr.close(io);
+    errdefer {
+        const output = tmp.dir.readFileAlloc(io, "envoy.log", allocator, .limited(2 * 1024 * 1024)) catch "";
+        defer if (output.len > 0) allocator.free(output);
+        debug.print("{s}", .{output});
+    }
+    var envoy = try requireRunAndWaitEnvoyStarted(stderr);
+    defer envoy.kill(io);
     try requireHttpHeaderOperations();
     try requireHttpBodyOperations();
     try requireHttpRandomAuth();
     try requireTcpDataSizeCounter();
-    try requireEnvoyLogs(&envoy);
+    try requireEnvoyLogs(tmp.dir);
 }
 
 const E2EError = error{RequiredStringNotFound};
 
 fn requireWasmBinary() !void {
-    const cwd = try std.process.getCwdAlloc(allocator);
-    defer allocator.free(cwd);
+    const file = try std.Io.Dir.cwd().openFile(io, "zig-out/bin/example.wasm", .{});
+    defer file.close(io);
 
-    const wasm_path = try std.fmt.allocPrint(allocator, "{s}/zig-out/bin/example.wasm", .{cwd});
-    defer allocator.free(wasm_path);
-    const file = try std.fs.openFileAbsolute(wasm_path, .{});
-    defer file.close();
-
-    // Check Wasm header.
     var header_buf: [8]u8 = undefined;
-    const read = try file.readAll(header_buf[0..]);
-    assert(read == 8);
+    try std.testing.expectEqual(header_buf.len, try file.readPositionalAll(io, &header_buf, 0));
 
     const exp_header = [8]u8{ 0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00 };
     assert(std.mem.eql(u8, header_buf[0..], exp_header[0..]));
 }
 
-fn requireRunAndWaitEnvoyStarted() !std.ChildProcess {
+fn requireRunAndWaitEnvoyStarted(stderr: std.Io.File) !std.process.Child {
     // Create a child process.
     const envoy_argv = [_][]const u8{ "envoy", "-c", "example/envoy.yaml", "--concurrency", "2" };
-    var envoy = std.ChildProcess.init(envoy_argv[0..], allocator);
-
-    envoy.stdin_behavior = .Ignore;
-    envoy.stdout_behavior = .Ignore;
-    envoy.stderr_behavior = .Pipe;
-
-    // Run the process.
-    try envoy.spawn();
-    errdefer _ = envoy.kill() catch unreachable;
-    errdefer printFileReader(envoy.stderr.?.reader()) catch unreachable;
+    var envoy = try std.process.spawn(io, .{
+        .argv = &envoy_argv,
+        .stdin = .ignore,
+        .stdout = .ignore,
+        .stderr = .{ .file = stderr },
+    });
+    errdefer envoy.kill(io);
 
     // Check endpoints are healthy.
     for ([_][]const u8{
@@ -62,27 +61,15 @@ fn requireRunAndWaitEnvoyStarted() !std.ChildProcess {
         try requireExecStdout(std.time.ns_per_ms * 100, 10, argv[0..], exps[0..]);
     }
 
-    std.time.sleep(std.time.ns_per_s * 5);
+    try io.sleep(.fromSeconds(5), .awake);
     return envoy;
-}
-
-fn printFileReader(reader: std.fs.File.Reader) !void {
-    // TODO: this assumes that the reader continue emitting logs so that we wouldn't be blocked.
-    // Use thread or async call (polling) equivalent so we won't be in deadlock in anycase.
-    var timer = try std.time.Timer.start();
-    while (timer.read() / std.time.ns_per_s < 10) {
-        if (try reader.readUntilDelimiterOrEofAlloc(allocator, '\n', 50 * 1024)) |line| {
-            defer allocator.free(line);
-            debug.print("{s}\n", .{line});
-        }
-    }
 }
 
 fn requireExecStdout(comptime intervalInNanoSec: u64, comptime maxRetry: u64, argv: []const []const u8, expects: []const []const u8) !void {
     var i: u64 = 0;
     while (i < maxRetry) : (i += 1) {
         // Exec args.
-        const res = try std.ChildProcess.exec(.{ .allocator = allocator, .argv = argv });
+        const res = try std.process.run(allocator, io, .{ .argv = argv });
         defer allocator.free(res.stdout);
         defer allocator.free(res.stderr);
 
@@ -92,7 +79,7 @@ fn requireExecStdout(comptime intervalInNanoSec: u64, comptime maxRetry: u64, ar
 
         // If all found, break the loop.
         if (j == expects.len) break;
-        std.time.sleep(intervalInNanoSec);
+        try io.sleep(.fromNanoseconds(intervalInNanoSec), .awake);
     }
 
     if (i == maxRetry) {
@@ -181,7 +168,7 @@ fn requireTcpDataSizeCounter() !void {
     }
 }
 
-fn requireEnvoyLogs(envoy: *std.ChildProcess) !void {
+fn requireEnvoyLogs(dir: std.Io.Dir) !void {
     const exps = [_][]const u8{
         "wasm log http-header-operation ziglang_vm: plugin configuration: root=\"\", http=\"header-operation\", stream=\"\"",
         "wasm log http-body-operation ziglang_vm: plugin configuration: root=\"\", http=\"body-operation\", stream=\"\"",
@@ -195,25 +182,15 @@ fn requireEnvoyLogs(envoy: *std.ChildProcess) !void {
         "wasm log singleton ziglang_vm: user-agent curl/",
     };
 
-    // Collect stderr until timeout
-    // TODO: this assumes that the Envoy continue emitting logs so that we wouldn't be blocked.
-    // Use thread or async call (polling) equivalent so we won't be in deadlock in anycase.
-    const reader = envoy.stderr.?.reader();
-    var stderr = std.ArrayList(u8).init(allocator);
-    defer stderr.deinit();
-    var timer = try std.time.Timer.start();
-    while (timer.read() / std.time.ns_per_s < 10) {
-        if (try reader.readUntilDelimiterOrEofAlloc(allocator, '\n', 50 * 1024)) |line| {
-            defer allocator.free(line);
-            try stderr.appendSlice(line);
-        }
-    }
+    for (0..100) |_| {
+        const log = try dir.readFileAlloc(io, "envoy.log", allocator, .limited(2 * 1024 * 1024));
+        defer allocator.free(log);
 
-    // Check logs.
-    for (exps) |exp| {
-        debug.print("Checking '{s}' in Envoy logs..\n", .{exp});
-        if (std.mem.indexOf(u8, stderr.items, exp) == null) {
-            return E2EError.RequiredStringNotFound;
-        }
+        for (exps) |exp| {
+            if (std.mem.find(u8, log, exp) == null) break;
+        } else return;
+
+        try io.sleep(.fromMilliseconds(100), .awake);
     }
+    return E2EError.RequiredStringNotFound;
 }
